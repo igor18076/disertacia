@@ -1,0 +1,40 @@
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import MetaData
+
+from coursegen.core.config import Settings
+from coursegen.db.connection import create_database_engine
+
+
+config = context.config
+if config.config_file_name:
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
+
+metadata = MetaData(schema="coursegen")
+
+
+def run_online() -> None:
+    engine = create_database_engine(Settings())
+    try:
+        with engine.connect() as connection:
+            context.configure(
+                connection=connection, target_metadata=metadata, version_table_schema="public"
+            )
+            with context.begin_transaction():
+                context.run_migrations()
+    finally:
+        engine.dispose()
+
+
+if context.is_offline_mode():
+    context.configure(
+        dialect_name="postgresql",
+        target_metadata=metadata,
+        version_table_schema="public",
+        literal_binds=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+else:
+    run_online()

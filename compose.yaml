@@ -1,0 +1,127 @@
+name: coursegen
+
+x-app-build: &app-build
+  context: .
+  dockerfile: docker/api.Dockerfile
+  target: runtime
+
+x-database-env: &database-env
+  POSTGRES_USER: ${POSTGRES_USER:-coursegen}
+  POSTGRES_DB: ${POSTGRES_DB:-coursegen}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+
+x-app-env: &app-env
+  <<: *database-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  QDRANT_URL: http://qdrant:6333
+  PROBE_TIMEOUT_SECONDS: ${PROBE_TIMEOUT_SECONDS:-3}
+
+services:
+  postgres:
+    image: postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b
+    user: postgres
+    environment: *database-env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [backend]
+    cpus: ${POSTGRES_CPUS:-2}
+    mem_limit: ${POSTGRES_MEMORY:-4g}
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.20.2-unprivileged@sha256:f60765106f26981dabc593d88fe4d0c8138893442c7c59d62257390891b65277
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - qdrant_snapshots:/qdrant/snapshots
+    networks: [backend]
+    cpus: ${QDRANT_CPUS:-4}
+    mem_limit: ${QDRANT_MEMORY:-12g}
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/6333
+          printf 'GET /readyz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          read -r status <&3
+          [[ "$$status" == HTTP/*" 200 "* ]]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  migrate:
+    build: *app-build
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-env
+    networks: [backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cpus: ${MIGRATE_CPUS:-1}
+    mem_limit: ${MIGRATE_MEMORY:-512m}
+
+  api:
+    build: *app-build
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_healthy
+    networks: [backend, edge]
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    cpus: ${API_CPUS:-2}
+    mem_limit: ${API_MEMORY:-4g}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          from http.client import HTTPConnection
+          connection = HTTPConnection("127.0.0.1", 8000, timeout=65)
+          connection.request("GET", "/ready")
+          raise SystemExit(connection.getresponse().status != 200)
+      interval: 10s
+      timeout: 70s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  tests:
+    profiles: [test]
+    build:
+      <<: *app-build
+      target: tests
+    environment:
+      <<: *app-env
+      API_BASE_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [backend]
+    cpus: ${TEST_CPUS:-2}
+    mem_limit: ${TEST_MEMORY:-2g}
+
+networks:
+  backend:
+    internal: true
+  edge: {}
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  qdrant_snapshots:
