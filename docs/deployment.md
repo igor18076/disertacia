@@ -57,7 +57,31 @@ COMPOSE_FILE=compose.yaml:compose.build-dns.yaml sh scripts/accept-infra.sh
 
 Адреса вычисляются заново для каждого такого запуска. Параметр `build.extra_hosts` действует при сборке образов API, миграции и тестов. HTTPS использует исходные имена узлов, а uv проверяет пакеты по `uv.lock`. [Документация Docker](https://docs.docker.com/reference/compose-file/build/#extra_hosts)
 
-Если на самом Debian `getent` не выдаёт адрес, сначала проверьте доступ сервера к настроенному DNS-резолверу. Если после успешного разрешения имён ошибка сменилась на тайм-аут подключения, проверьте исходящий HTTPS из сети сборщика.
+Если на самом Debian `getent` не выдаёт адрес, проверьте доступ сервера к настроенному DNS-резолверу. При тайм-ауте TCP после успешного разрешения имён можно запустить сборку с локальными пакетами по инструкции ниже.
+
+### Сборка с локальными пакетами Python
+
+При ошибке `tcp connect error: deadline has elapsed` на `files.pythonhosted.org` пакеты для Debian amd64 можно перенести с Windows. Архив `dist/coursegen-wheels-cp312-linux-amd64.tar.gz` содержит пакеты для CPython 3.12, включая зависимости тестов. Сборка берёт требования и хеши из `uv.lock` в текущей версии проекта. Базовые образы Python, uv, PostgreSQL и Qdrant по-прежнему должны быть доступны Docker через реестры или локальный кеш.
+
+**На Windows.** Если архив уже подготовлен для текущего lock-файла, сразу передайте его командой `scp`. Для повторного создания используйте Python 3.12 и uv 0.13.9 из корня проекта.
+
+```powershell
+uv run --locked --group test python scripts/prepare_wheelhouse.py
+scp .\dist\coursegen-wheels-cp312-linux-amd64.tar.gz user@server:~/
+```
+
+Подставьте в `user@server` тот же адрес и логин, с которыми вы заходите по SSH. Обновите код проекта в Git обычным способом. Архив передаётся отдельно.
+
+**На Debian.** Из каталога проекта обновите код, распакуйте архив и запустите приёмку. Для установки в другом каталоге замените путь в первой команде.
+
+```sh
+cd /var/www/my-project
+git pull --ff-only &&
+  tar -xzf ~/coursegen-wheels-cp312-linux-amd64.tar.gz &&
+  COMPOSE_FILE=compose.yaml:compose.wheels.yaml sh scripts/accept-infra.sh
+```
+
+В этом режиме BuildKit передаёт каталог `wheelhouse/` отдельным контекстом и отключает сеть для команд сборки. Отсутствие нужного пакета или несовпадение SHA-256 прерывает установку. После изменения `uv.lock` подготовьте архив заново. [Именованные контексты Docker Compose](https://docs.docker.com/reference/compose-file/build/#additional_contexts)
 
 ## Резервная копия
 

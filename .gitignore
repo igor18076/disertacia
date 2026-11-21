@@ -25,6 +25,7 @@ __pycache__/
 htmlcov/
 build/
 dist/
+/wheelhouse/
 .idea/
 .vscode/
 .DS_Store

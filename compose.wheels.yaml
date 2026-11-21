@@ -1,0 +1,15 @@
+# Локальные Linux wheels для Python 3.12 и Debian amd64.
+x-wheel-build: &wheel-build
+  args:
+    DEPENDENCY_SOURCE: wheels
+  additional_contexts:
+    wheelhouse: ./wheelhouse
+  network: none
+
+services:
+  api:
+    build: *wheel-build
+  migrate:
+    build: *wheel-build
+  tests:
+    build: *wheel-build
