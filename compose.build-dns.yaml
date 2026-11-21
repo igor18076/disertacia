@@ -1,0 +1,13 @@
+# Дополнение для сборки на Debian при отказе DNS внутри BuildKit.
+x-pypi-dns: &pypi-dns
+  extra_hosts:
+    - "pypi.org=${PYPI_INDEX_IPV4:?Debian must resolve pypi.org}"
+    - "files.pythonhosted.org=${PYPI_FILES_IPV4:?Debian must resolve files.pythonhosted.org}"
+
+services:
+  api:
+    build: *pypi-dns
+  migrate:
+    build: *pypi-dns
+  tests:
+    build: *pypi-dns

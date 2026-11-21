@@ -37,6 +37,28 @@ docker compose port api 8000
 
 Последняя команда должна показать `127.0.0.1` и порт из `.env`. В рамках этого развёртывания оператор управляет контейнерами и данными проекта. Изменение правил сети, системных служб, дисков или прав доступа согласовывается отдельно.
 
+### Ошибка DNS при загрузке пакетов Python
+
+Если шаг `stack` завершился на `RUN uv sync` с сообщением `failed to lookup address information`, проверьте разрешение имён на самом Debian. Затем повторите сборку API. При успешной сборке можно сразу повторить приёмку.
+
+```sh
+getent ahostsv4 pypi.org
+getent ahostsv4 files.pythonhosted.org
+docker compose --progress plain build api && sh scripts/accept-infra.sh
+```
+
+Если `getent` вернул адреса для обоих имён, а сборщик снова сообщил об ошибке DNS, повторите приёмку с дополнительным файлом Compose. Команда предназначена для штатного набора файлов проекта. Если используете другие Compose-файлы, включите их в тот же список в привычном порядке перед `compose.build-dns.yaml`.
+
+```sh
+PYPI_INDEX_IPV4="$(getent ahostsv4 pypi.org | awk 'NR == 1 {print $1}')" \
+PYPI_FILES_IPV4="$(getent ahostsv4 files.pythonhosted.org | awk 'NR == 1 {print $1}')" \
+COMPOSE_FILE=compose.yaml:compose.build-dns.yaml sh scripts/accept-infra.sh
+```
+
+Адреса вычисляются заново для каждого такого запуска. Параметр `build.extra_hosts` действует при сборке образов API, миграции и тестов. HTTPS использует исходные имена узлов, а uv проверяет пакеты по `uv.lock`. [Документация Docker](https://docs.docker.com/reference/compose-file/build/#extra_hosts)
+
+Если на самом Debian `getent` не выдаёт адрес, сначала проверьте доступ сервера к настроенному DNS-резолверу. Если после успешного разрешения имён ошибка сменилась на тайм-аут подключения, проверьте исходящий HTTPS из сети сборщика.
+
 ## Резервная копия
 
 Перед обновлением дождитесь завершения операций записи. Следующие команды создают каталог с закрытыми правами в `backups/`, логический архив PostgreSQL и полный снимок одноузлового Qdrant. Оба сервиса должны работать. Снимок Qdrant запрашивается через внутреннюю сеть из контейнера API. [pg_dump](https://www.postgresql.org/docs/current/app-pgdump.html) · [Снимки Qdrant](https://qdrant.tech/documentation/operations/snapshots/)
