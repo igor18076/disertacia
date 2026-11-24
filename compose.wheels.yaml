@@ -11,5 +11,7 @@ services:
     build: *wheel-build
   migrate:
     build: *wheel-build
+  worker:
+    build: *wheel-build
   tests:
     build: *wheel-build

@@ -1,17 +1,18 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import MetaData
 
 from coursegen.core.config import Settings
 from coursegen.db.connection import create_database_engine
+from coursegen.documents.storage import metadata
 
 
 config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-metadata = MetaData(schema="coursegen")
+def include_name(name, object_type, _parents):
+    return object_type != "schema" or name == metadata.schema
 
 
 def run_online() -> None:
@@ -19,7 +20,8 @@ def run_online() -> None:
     try:
         with engine.connect() as connection:
             context.configure(
-                connection=connection, target_metadata=metadata, version_table_schema="public"
+                connection=connection, target_metadata=metadata, version_table_schema="public",
+                include_schemas=True, include_name=include_name,
             )
             with context.begin_transaction():
                 context.run_migrations()

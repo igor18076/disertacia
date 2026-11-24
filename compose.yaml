@@ -16,6 +16,13 @@ x-app-env: &app-env
   POSTGRES_PORT: "5432"
   QDRANT_URL: http://qdrant:6333
   PROBE_TIMEOUT_SECONDS: ${PROBE_TIMEOUT_SECONDS:-3}
+  DOCUMENT_MAX_BYTES: ${DOCUMENT_MAX_BYTES:-16777216}
+  DOCUMENT_MAX_PAGES: ${DOCUMENT_MAX_PAGES:-2000}
+  DOCUMENT_MAX_TEXT_CHARS: ${DOCUMENT_MAX_TEXT_CHARS:-8000000}
+  CHUNK_STRATEGY: ${CHUNK_STRATEGY:-section}
+  CHUNK_SIZE: ${CHUNK_SIZE:-800}
+  CHUNK_OVERLAP: ${CHUNK_OVERLAP:-0.12}
+  WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
 
 services:
   postgres:
@@ -101,6 +108,18 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  worker:
+    build: *app-build
+    command: ["python", "-m", "coursegen.documents.worker"]
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+    cpus: ${WORKER_CPUS:-2}
+    mem_limit: ${WORKER_MEMORY:-2g}
+    restart: unless-stopped
+
   tests:
     profiles: [test]
     build:
@@ -112,6 +131,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      worker:
+        condition: service_started
     networks: [backend]
     cpus: ${TEST_CPUS:-2}
     mem_limit: ${TEST_MEMORY:-2g}

@@ -12,6 +12,8 @@ from qdrant_client.http.exceptions import ApiException
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
+from coursegen.api.documents import router as document_router
+
 from coursegen.core.config import Settings
 from coursegen.db.connection import create_database_engine
 
@@ -45,6 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         trust_env=False,
     )
     app.state.engine = engine
+    app.state.settings = settings
     app.state.qdrant = client
     app.state.timeout = settings.probe_timeout_seconds
     try:
@@ -60,6 +63,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.include_router(document_router)
 
 
 def check_postgres(engine: Engine, timeout: int) -> bool:
@@ -68,7 +72,10 @@ def check_postgres(engine: Engine, timeout: int) -> bool:
             text("SELECT set_config('statement_timeout', :value, true)"),
             {"value": f"{timeout}s"},
         )
-        return bool(connection.scalar(text("SELECT has_schema_privilege('coursegen', 'USAGE')")))
+        return bool(connection.scalar(text(
+            "SELECT has_schema_privilege('coursegen', 'USAGE') "
+            "AND to_regclass('coursegen.document_versions') IS NOT NULL"
+        )))
 
 
 def check_qdrant(client: QdrantClient) -> bool:

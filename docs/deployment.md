@@ -55,7 +55,7 @@ PYPI_FILES_IPV4="$(getent ahostsv4 files.pythonhosted.org | awk 'NR == 1 {print 
 COMPOSE_FILE=compose.yaml:compose.build-dns.yaml sh scripts/accept-infra.sh
 ```
 
-Адреса вычисляются заново для каждого такого запуска. Параметр `build.extra_hosts` действует при сборке образов API, миграции и тестов. HTTPS использует исходные имена узлов, а uv проверяет пакеты по `uv.lock`. [Документация Docker](https://docs.docker.com/reference/compose-file/build/#extra_hosts)
+Адреса вычисляются заново для каждого такого запуска. Параметр `build.extra_hosts` действует при сборке образов API, worker, миграции и тестов. HTTPS использует исходные имена узлов, а uv проверяет пакеты по `uv.lock`. [Документация Docker](https://docs.docker.com/reference/compose-file/build/#extra_hosts)
 
 Если на самом Debian `getent` не выдаёт адрес, проверьте доступ сервера к настроенному DNS-резолверу. При тайм-ауте TCP после успешного разрешения имён можно запустить сборку с локальными пакетами по инструкции ниже.
 

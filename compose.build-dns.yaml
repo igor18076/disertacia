@@ -9,5 +9,7 @@ services:
     build: *pypi-dns
   migrate:
     build: *pypi-dns
+  worker:
+    build: *pypi-dns
   tests:
     build: *pypi-dns

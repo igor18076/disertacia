@@ -51,4 +51,5 @@ FROM application AS tests
 COPY --from=test-env /app/.venv /app/.venv
 COPY pyproject.toml ./
 COPY tests ./tests
+COPY datasets/synthetic/stage2.md ./datasets/synthetic/stage2.md
 CMD ["python", "-m", "pytest", "-p", "no:cacheprovider", "tests"]

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import AnyHttpUrl, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
@@ -15,6 +17,13 @@ class Settings(BaseSettings):
     postgres_password: SecretStr = Field(min_length=1)
     qdrant_url: AnyHttpUrl = AnyHttpUrl("http://qdrant:6333")
     probe_timeout_seconds: int = Field(default=3, ge=2, le=30)
+    document_max_bytes: int = Field(default=16 * 1024 * 1024, ge=1, le=128 * 1024 * 1024)
+    document_max_pages: int = Field(default=2000, ge=1)
+    document_max_text_chars: int = Field(default=8_000_000, ge=1)
+    chunk_strategy: Literal["fixed", "section", "hierarchical"] = "section"
+    chunk_size: int = Field(default=800, ge=8, le=4096)
+    chunk_overlap: float = Field(default=0.12, ge=0, le=0.5)
+    worker_poll_seconds: float = Field(default=1, gt=0, le=60)
 
     @property
     def database_url(self) -> URL:

@@ -1,6 +1,6 @@
 # CourseGen Research
 
-Исследовательский проект по генерации учебных материалов с проверкой источников. Первая поставка по ТЗ охватывает этапы 0 и 1 — подготовку окружения и контейнерную инфраструктуру. FastAPI проверяет доступ к схеме PostgreSQL и получает список коллекций Qdrant. Для запуска достаточно CPU.
+Исследовательский проект по генерации учебных материалов с проверкой источников. Инфраструктура принята на Debian. На этапе 2 API принимает PDF, TXT и Markdown, а фоновый обработчик сохраняет версии оригиналов, страницы и цитируемые фрагменты в PostgreSQL. Для запуска достаточно CPU.
 
 ## Windows → Git
 
@@ -60,6 +60,20 @@ sh scripts/accept-infra.sh
 ```
 
 Для остановки выполните `docker compose down`. Именованные тома с данными сохраняются для следующего запуска.
+
+## Проверка документов
+
+На Mini14 для обновления до этапа 2 нужен свежий архив wheels с PyMuPDF 1.28.2. Передайте архив из `dist/` и повторите приёмку с `compose.wheels.yaml` по [инструкции для локальных пакетов](docs/deployment.md#сборка-с-локальными-пакетами-python). Миграция `0002_documents` добавит таблицы в существующую базу.
+
+Из каталога проекта на Debian загрузите синтетический источник (при другом `API_PORT` замените порт).
+
+```sh
+curl --fail-with-body -H 'Content-Type: text/markdown' \
+  --data-binary @datasets/synthetic/stage2.md \
+  'http://127.0.0.1:8000/api/v1/documents?filename=stage2.md&source_type=manual&language=ru'
+```
+
+Ответ HTTP 202 содержит `document_id` и `document_version`. Запросите `GET /api/v1/documents/{document_id}` и дождитесь статуса `ready`. Получите фрагменты через `GET /api/v1/documents/{document_id}/chunks`; для проверки цитаты запросите `GET /api/v1/documents/{document_id}/chunks/{chunk_id}/verify`. Версию в этих запросах можно зафиксировать параметром `?document_version=1`. [Форматы, статусы и повторная обработка](docs/decisions/0002-documents.md)
 
 ## Состав проекта
 

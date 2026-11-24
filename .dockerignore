@@ -11,6 +11,9 @@
 !migrations/**
 !tests/
 !tests/**
+!datasets/
+!datasets/synthetic/
+!datasets/synthetic/stage2.md
 **/__pycache__/
 **/*.py[cod]
 **/.env
