@@ -14,6 +14,9 @@
 !datasets/
 !datasets/synthetic/
 !datasets/synthetic/stage2.md
+!datasets/synthetic/search-v1.json
+!scripts/
+!scripts/benchmark_search.py
 **/__pycache__/
 **/*.py[cod]
 **/.env

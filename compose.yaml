@@ -23,6 +23,8 @@ x-app-env: &app-env
   CHUNK_SIZE: ${CHUNK_SIZE:-800}
   CHUNK_OVERLAP: ${CHUNK_OVERLAP:-0.12}
   WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
+  EMBEDDING_MODEL_DIR: /models/rubert-tiny2-int8
+  SEARCH_BATCH_SIZE: ${SEARCH_BATCH_SIZE:-16}
 
 services:
   postgres:
@@ -81,6 +83,8 @@ services:
 
   api:
     build: *app-build
+    volumes:
+      - ${MODEL_ROOT:-./models}:/models:ro
     environment: *app-env
     depends_on:
       migrate:
@@ -110,6 +114,8 @@ services:
 
   worker:
     build: *app-build
+    volumes:
+      - ${MODEL_ROOT:-./models}:/models:ro
     command: ["python", "-m", "coursegen.documents.worker"]
     environment: *app-env
     depends_on:
@@ -122,6 +128,8 @@ services:
 
   tests:
     profiles: [test]
+    volumes:
+      - ${MODEL_ROOT:-./models}:/models:ro
     build:
       <<: *app-build
       target: tests

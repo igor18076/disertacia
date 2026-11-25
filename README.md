@@ -1,6 +1,6 @@
 # CourseGen Research
 
-Исследовательский проект по генерации учебных материалов с проверкой источников. Инфраструктура принята на Debian. На этапе 2 API принимает PDF, TXT и Markdown, а фоновый обработчик сохраняет версии оригиналов, страницы и цитируемые фрагменты в PostgreSQL. Для запуска достаточно CPU.
+Исследовательский проект по генерации учебных материалов с проверкой источников. API принимает PDF, TXT и Markdown, сохраняет версии и страницы в PostgreSQL и ищет по фрагментам в Qdrant. Доступны BM25, векторный поиск и гибридный поиск с RRF. Обработчику и API достаточно CPU.
 
 ## Windows → Git
 
@@ -20,6 +20,7 @@ git push -u origin main
 ```sh
 git clone '<URL вашего репозитория>' /opt/coursegen
 cd /opt/coursegen
+python3 scripts/prepare_search_model.py
 sh scripts/accept-infra.sh
 ```
 
@@ -63,7 +64,7 @@ sh scripts/accept-infra.sh
 
 ## Проверка документов
 
-На Mini14 для обновления до этапа 2 нужен свежий архив wheels с PyMuPDF 1.28.2. Передайте архив из `dist/` и повторите приёмку с `compose.wheels.yaml` по [инструкции для локальных пакетов](docs/deployment.md#сборка-с-локальными-пакетами-python). Миграция `0002_documents` добавит таблицы в существующую базу.
+Для развёртывания на Mini14 передайте оба архива из `dist/` и запустите приёмку с `compose.wheels.yaml`. Миграции добавят таблицы в существующую базу. [Команды для Windows и Debian](docs/deployment.md#сборка-с-локальными-пакетами-python)
 
 Из каталога проекта на Debian загрузите синтетический источник (при другом `API_PORT` замените порт).
 
@@ -74,6 +75,35 @@ curl --fail-with-body -H 'Content-Type: text/markdown' \
 ```
 
 Ответ HTTP 202 содержит `document_id` и `document_version`. Запросите `GET /api/v1/documents/{document_id}` и дождитесь статуса `ready`. Получите фрагменты через `GET /api/v1/documents/{document_id}/chunks`; для проверки цитаты запросите `GET /api/v1/documents/{document_id}/chunks/{chunk_id}/verify`. Версию в этих запросах можно зафиксировать параметром `?document_version=1`. [Форматы, статусы и повторная обработка](docs/decisions/0002-documents.md)
+
+## Поиск по документам
+
+После обработки документа подставьте его идентификатор в команды на Debian.
+
+```sh
+api=http://127.0.0.1:8000/api/v1
+doc='<document_id>'
+curl -fsS -X POST "$api/documents/$doc/index"
+curl -fsS "$api/documents/$doc/index?verify=true"
+```
+
+Дождитесь статуса `indexed`. Поиск возвращает текст, имя файла, версию, страницы, ранг и оценки. Запрос ниже ограничивает выдачу одним документом.
+
+```sh
+curl -fsS -H 'Content-Type: application/json' \
+  -d "{\"query\":\"проверка источника\",\"mode\":\"hybrid\",\"top_k\":3,\"filters\":{\"allowed_document_ids\":[\"$doc\"]}}" \
+  "$api/search"
+```
+
+Чтобы сравнить три режима на шести синтетических документах и восьми запросах, выполните команду после приёмки. Она сохранит ранги по запросам, метрики и задержки в JSON.
+
+```sh
+mkdir -p results/search
+docker compose --profile test run --rm --no-deps -T tests python scripts/benchmark_search.py \
+  > "results/search/$(date -u +%Y%m%dT%H%M%SZ).json"
+```
+
+Параметры модели, правила выбора версий и порядок восстановления индекса описаны в [решении по поиску](docs/decisions/0003-search.md).
 
 ## Состав проекта
 

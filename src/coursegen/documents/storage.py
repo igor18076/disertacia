@@ -50,6 +50,15 @@ chunks = Table(
                          ["coursegen.document_pages.document_id", "coursegen.document_pages.document_version",
                           "coursegen.document_pages.number"]),
 )
+indexes = Table(
+    "search_indexes", metadata, Column("document_id", Uuid, primary_key=True),
+    Column("document_version", Integer, primary_key=True), Column("generation", Uuid, nullable=False),
+    Column("status", Text, nullable=False), Column("error_code", Text),
+    Column("indexed_count", Integer, nullable=False, server_default=text("0")),
+    Column("model_version", Text, nullable=False),
+    ForeignKeyConstraint(["document_id", "document_version"],
+                         ["coursegen.document_versions.document_id", "coursegen.document_versions.document_version"]),
+)
 public_fields = [c for c in versions.c if c.name not in {"original", "identity_hash"}]
 logger = logging.getLogger(__name__)
 
@@ -120,6 +129,9 @@ def _publish_version(conn: Connection, row: RowMapping) -> None:
         status = "needs_ocr" if missing == len(src) else "partial"
     conn.execute(versions.update().where(at_version(versions, doc_id, number)).values(
         status=status, error_code=None, page_count=len(src), chunk_count=len(pieces)))
+    if status == "needs_ocr":
+        conn.execute(indexes.update().where(at_version(indexes, doc_id, number), indexes.c.status == "queued")
+                     .values(status="failed", error_code="source_needs_ocr"))
 
 
 def process_next(engine: Engine) -> bool:
@@ -142,4 +154,6 @@ def process_next(engine: Engine) -> bool:
                                        "document_version": number, "reason": code, "error_type": type(exc).__name__}))
             conn.execute(versions.update().where(at_version(versions, doc_id, number)).values(
                 status="failed", error_code=code, page_count=0, chunk_count=0))
+            conn.execute(indexes.update().where(at_version(indexes, doc_id, number), indexes.c.status == "queued")
+                         .values(status="failed", error_code="source_processing_failed"))
         return True

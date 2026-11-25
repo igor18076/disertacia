@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AnyHttpUrl, Field, SecretStr
@@ -24,6 +25,8 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=800, ge=8, le=4096)
     chunk_overlap: float = Field(default=0.12, ge=0, le=0.5)
     worker_poll_seconds: float = Field(default=1, gt=0, le=60)
+    embedding_model_dir: Path = Path("models/rubert-tiny2-int8")
+    search_batch_size: int = Field(default=16, ge=1, le=128)
 
     @property
     def database_url(self) -> URL:

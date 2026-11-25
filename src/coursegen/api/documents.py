@@ -3,7 +3,7 @@ from hashlib import sha256
 from pathlib import PurePath
 from typing import Annotated, Literal
 from urllib.parse import quote
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -81,6 +81,7 @@ async def upload(
     language: Annotated[str, Query(pattern=r"^[a-z]{2,3}(-[A-Za-z0-9]+)*$", max_length=32)] = "und",
     publication_year: Annotated[int | None, Query(ge=1, le=9999)] = None,
     technology_version: ShortText | None = None, license_terms: ShortText | None = None,
+    topic: ShortText | None = None,
 ) -> Document:
     if "/" in filename or "\\" in filename:
         raise HTTPException(422, "Укажите имя файла без пути.")
@@ -107,6 +108,8 @@ async def upload(
         raise HTTPException(415, "Сигнатура файла не соответствует формату.")
     meta = dict(source_type=source_type, currency=currency, language=language, publication_year=publication_year,
                 technology_version=technology_version, license_terms=license_terms)
+    if topic is not None:
+        meta["topic"] = topic
     config = dict(pipeline="pages-v1", parser=parser_version(fmt), strategy=settings.chunk_strategy,
                   size=settings.chunk_size, overlap=settings.chunk_overlap,
                   max_pages=settings.document_max_pages, max_chars=settings.document_max_text_chars)
@@ -158,6 +161,9 @@ def reprocess(request: Request, document_id: UUID, document_version: Version = N
         number = row["document_version"]
         conn.execute(db.versions.update().where(db.at_version(db.versions, document_id, number))
                      .values(status="queued", error_code=None, page_count=0, chunk_count=0))
+        conn.execute(db.indexes.update().where(db.at_version(db.indexes, document_id, number),
+                     db.indexes.c.status.in_(["indexed", "queued", "failed"]))
+                     .values(status="queued", generation=uuid4(), indexed_count=0, error_code=None))
         return db.lookup(conn, document_id, number)
 
 
@@ -181,10 +187,18 @@ def list_chunks(request: Request, document_id: UUID, document_version: Version =
         row = version_or_404(conn, document_id, document_version)
         available(row)
         query = select(db.chunks).where(db.at_version(db.chunks, document_id, row["document_version"]))
+        model_version = conn.scalar(select(db.indexes.c.model_version).where(
+            db.at_version(db.indexes, document_id, row["document_version"]), db.indexes.c.status == "indexed"))
         items = conn.execute(query.order_by(db.chunks.c.ordinal).limit(limit).offset(offset)).mappings()
-        return [Chunk(**dict(item["payload"]), chunk_id=item["chunk_id"], document_id=document_id,
-                      document_version=row["document_version"], page_start=item["page_start"],
-                      ordinal=item["ordinal"], language=row["source_meta"]["language"]) for item in items]
+        result = []
+        for item in items:
+            payload = dict(item["payload"])
+            if payload["role"] == "leaf":
+                payload["embedding_model_version"] = model_version
+            result.append(Chunk(**payload, chunk_id=item["chunk_id"], document_id=document_id,
+                          document_version=row["document_version"], page_start=item["page_start"],
+                          ordinal=item["ordinal"], language=row["source_meta"]["language"]))
+        return result
 
 
 @router.get("/{document_id}/chunks/{chunk_id}/verify", summary="Проверить цитату по оригиналу версии")

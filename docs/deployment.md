@@ -63,11 +63,12 @@ COMPOSE_FILE=compose.yaml:compose.build-dns.yaml sh scripts/accept-infra.sh
 
 При ошибке `tcp connect error: deadline has elapsed` на `files.pythonhosted.org` пакеты для Debian amd64 можно перенести с Windows. Архив `dist/coursegen-wheels-cp312-linux-amd64.tar.gz` содержит пакеты для CPython 3.12, включая зависимости тестов. Сборка берёт требования и хеши из `uv.lock` в текущей версии проекта. Базовые образы Python, uv, PostgreSQL и Qdrant по-прежнему должны быть доступны Docker через реестры или локальный кеш.
 
-**На Windows.** Если архив уже подготовлен для текущего lock-файла, сразу передайте его командой `scp`. Для повторного создания используйте Python 3.12 и uv 0.13.9 из корня проекта.
+**На Windows.** Для этапа 3 передайте архив wheels из текущего lock-файла и архив модели. Когда оба файла уже есть в `dist/`, достаточно команды `scp`. Для повторной подготовки используйте Python 3.12 и uv 0.13.9 из корня проекта.
 
 ```powershell
 uv run --locked --group test python scripts/prepare_wheelhouse.py
-scp .\dist\coursegen-wheels-cp312-linux-amd64.tar.gz user@server:~/
+py -3.12 scripts/prepare_search_model.py
+scp .\dist\coursegen-wheels-cp312-linux-amd64.tar.gz .\dist\coursegen-search-model.tar.gz user@server:~/
 ```
 
 Подставьте в `user@server` тот же адрес и логин, с которыми вы заходите по SSH. Обновите код проекта в Git обычным способом. Архив передаётся отдельно.
@@ -78,6 +79,7 @@ scp .\dist\coursegen-wheels-cp312-linux-amd64.tar.gz user@server:~/
 cd /var/www/my-project
 git pull --ff-only &&
   tar -xzf ~/coursegen-wheels-cp312-linux-amd64.tar.gz &&
+  tar -xzf ~/coursegen-search-model.tar.gz &&
   COMPOSE_FILE=compose.yaml:compose.wheels.yaml sh scripts/accept-infra.sh
 ```
 

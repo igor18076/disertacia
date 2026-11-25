@@ -13,6 +13,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from coursegen.api.documents import router as document_router
+from coursegen.api.search import router as search_router
 
 from coursegen.core.config import Settings
 from coursegen.db.connection import create_database_engine
@@ -64,6 +65,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(document_router)
+app.include_router(search_router)
 
 
 def check_postgres(engine: Engine, timeout: int) -> bool:
@@ -74,7 +76,7 @@ def check_postgres(engine: Engine, timeout: int) -> bool:
         )
         return bool(connection.scalar(text(
             "SELECT has_schema_privilege('coursegen', 'USAGE') "
-            "AND to_regclass('coursegen.document_versions') IS NOT NULL"
+            "AND to_regclass('coursegen.search_indexes') IS NOT NULL"
         )))
 
 
