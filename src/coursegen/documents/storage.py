@@ -6,7 +6,7 @@ import logging
 from uuid import UUID, NAMESPACE_URL, uuid5
 
 from sqlalchemy import (
-    Column, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, LargeBinary, MetaData,
+    Boolean, Column, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, LargeBinary, MetaData,
     Table, Text, UniqueConstraint, Uuid, and_, func, select, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, insert
@@ -30,8 +30,12 @@ versions = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("page_count", Integer, nullable=False, server_default=text("0")),
     Column("chunk_count", Integer, nullable=False, server_default=text("0")),
+    Column("requirements_extracted", Boolean, nullable=False, server_default=text("false")),
     UniqueConstraint("document_id", "identity_hash"),
     Index("document_queue", "created_at", postgresql_where=text("status = 'queued'")),
+    Index("requirements_queue", "created_at", postgresql_where=text(
+        "NOT requirements_extracted AND status IN ('ready', 'partial') "
+        "AND source_meta->>'source_type' IN ('syllabus', 'assessment')")),
 )
 pages = Table(
     "document_pages", metadata, Column("document_id", Uuid, primary_key=True),
@@ -58,6 +62,21 @@ indexes = Table(
     Column("model_version", Text, nullable=False),
     ForeignKeyConstraint(["document_id", "document_version"],
                          ["coursegen.document_versions.document_id", "coursegen.document_versions.document_version"]),
+)
+requirements = Table(
+    "requirements", metadata, Column("requirement_id", Uuid, primary_key=True),
+    Column("document_id", Uuid, nullable=False), Column("document_version", Integer, nullable=False),
+    Column("page", Integer, nullable=False), Column("char_start", Integer, nullable=False),
+    Column("char_end", Integer, nullable=False), Column("quote", Text, nullable=False),
+    Column("kind", Text, nullable=False), Column("text", Text, nullable=False),
+    Column("status", Text, nullable=False), Column("revision", Integer, nullable=False),
+    ForeignKeyConstraint(["document_id", "document_version"],
+                         ["coursegen.document_versions.document_id", "coursegen.document_versions.document_version"]),
+    Index("requirements_source", "document_id", "document_version", "page"),
+)
+graph_versions = Table(
+    "graph_versions", metadata, Column("graph_id", Uuid, primary_key=True),
+    Column("version", Integer, primary_key=True), Column("snapshot", JSONB, nullable=False),
 )
 public_fields = [c for c in versions.c if c.name not in {"original", "identity_hash"}]
 logger = logging.getLogger(__name__)
@@ -128,7 +147,7 @@ def _publish_version(conn: Connection, row: RowMapping) -> None:
     if missing:
         status = "needs_ocr" if missing == len(src) else "partial"
     conn.execute(versions.update().where(at_version(versions, doc_id, number)).values(
-        status=status, error_code=None, page_count=len(src), chunk_count=len(pieces)))
+        status=status, error_code=None, page_count=len(src), chunk_count=len(pieces), requirements_extracted=False))
     if status == "needs_ocr":
         conn.execute(indexes.update().where(at_version(indexes, doc_id, number), indexes.c.status == "queued")
                      .values(status="failed", error_code="source_needs_ocr"))

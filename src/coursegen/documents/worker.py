@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 from coursegen.core.config import Settings
 from coursegen.db.connection import create_database_engine
 from coursegen.documents.storage import process_next
+from coursegen.requirements.worker import extract_next
 from coursegen.retrieval.index import process_index
 
 
@@ -20,7 +21,8 @@ def main() -> None:
         while True:
             try:
                 extracted = process_next(engine)
-                if process_index(engine, client, settings) or extracted:
+                requirements = extract_next(engine)
+                if process_index(engine, client, settings) or extracted or requirements:
                     continue
             except OperationalError:
                 logging.warning('{"event":"document_worker_database_unavailable"}')

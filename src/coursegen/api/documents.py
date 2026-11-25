@@ -24,6 +24,7 @@ MIME = {"pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown"}
 
 
 class Document(BaseModel):
+    requirements_extracted: bool
     document_id: UUID
     document_version: int
     filename: str
@@ -160,7 +161,8 @@ def reprocess(request: Request, document_id: UUID, document_version: Version = N
             return row
         number = row["document_version"]
         conn.execute(db.versions.update().where(db.at_version(db.versions, document_id, number))
-                     .values(status="queued", error_code=None, page_count=0, chunk_count=0))
+                     .values(status="queued", error_code=None, page_count=0, chunk_count=0,
+                             requirements_extracted=False))
         conn.execute(db.indexes.update().where(db.at_version(db.indexes, document_id, number),
                      db.indexes.c.status.in_(["indexed", "queued", "failed"]))
                      .values(status="queued", generation=uuid4(), indexed_count=0, error_code=None))

@@ -3,14 +3,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from qdrant_client import models as qm
 from qdrant_client.http.exceptions import ApiException
 from sqlalchemy import select
 
 from coursegen.api.documents import Version, version_or_404
+from coursegen.api.curriculum import read_graph
 from coursegen.documents import storage as db
 from coursegen.retrieval.embedding import RetrievalError
-from coursegen.retrieval.index import discrepancy, enqueue
-from coursegen.retrieval.search import QdrantRetriever, RetrievedChunk, SearchRequest
+from coursegen.retrieval.index import discrepancy, enqueue, source_filter
+from coursegen.retrieval.search import GraphTrace, QdrantRetriever, RetrievedChunk, SearchRequest
 
 router = APIRouter(prefix="/api/v1", tags=["Поиск"])
 
@@ -83,9 +85,38 @@ def unavailable(exc: Exception) -> HTTPException:
 @router.post("/search", summary="Найти фрагменты с указанием источников")
 def search(request: Request, body: SearchRequest) -> list[RetrievedChunk]:
     state = request.app.state
-    retriever = QdrantRetriever(state.engine, state.qdrant, state.settings, body.mode,
-                                body.bm25_candidates, body.dense_candidates)
+    query = body.query
+    scope = None
+    trace = None
+    mode = body.mode
+    if body.graph is not None:
+        selection = body.graph
+        with state.engine.connect() as conn:
+            graph = read_graph(conn, selection.graph_id, selection.version).graph
+        try:
+            required, _, support = graph.context(selection.concept_id, set())
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        target = next(n for n in graph.nodes if n.id == selection.concept_id)
+        terms = list(dict.fromkeys([target.label, *(n.label for n in reversed(required))]))[:16]
+        query = " ".join([query, *terms])
+        trace = GraphTrace(**selection.model_dump(), terms=terms)
+        mode = "hybrid"
+        if selection.sources_only:
+            if not support:
+                return []
+            matches = [source_filter(n.document_id, n.document_version) for n in support if n.kind == "source"]
+            ids = [str(n.chunk_id) for n in support if n.kind == "chunk"]
+            if ids:
+                matches.append(qm.HasIdCondition(has_id=ids))
+            scope = qm.Filter(should=matches)
+    retriever = QdrantRetriever(state.engine, state.qdrant, state.settings, mode,
+                                body.bm25_candidates, body.dense_candidates, scope)
     try:
-        return retriever.search(body.query, body.filters, body.top_k)
+        hits = retriever.search(query, body.filters, body.top_k)
+        if trace:
+            for hit in hits:
+                hit.mode, hit.graph = "hybrid_graph", trace
+        return hits
     except (ApiException, RetrievalError) as exc:
         raise unavailable(exc) from exc

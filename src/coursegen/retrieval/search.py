@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal, Protocol, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from qdrant_client import QdrantClient, models as qm
 from sqlalchemy import Engine, select
 
@@ -14,6 +14,7 @@ from coursegen.retrieval.model_spec import MODEL_VERSION
 
 
 Mode = Literal["bm25", "dense", "hybrid"]
+SearchMode = Literal["bm25", "dense", "hybrid", "hybrid_graph"]
 QueryText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
 
@@ -26,14 +27,33 @@ class RetrievalFilters(BaseModel):
     topic: str | None = Field(default=None, min_length=1, max_length=200)
 
 
+class GraphSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    graph_id: UUID
+    version: int = Field(ge=1)
+    concept_id: str = Field(min_length=1, max_length=200)
+    sources_only: bool = False
+
+
+class GraphTrace(GraphSelection):
+    terms: list[str]
+
+
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: QueryText
     filters: RetrievalFilters = Field(default_factory=RetrievalFilters)
-    mode: Mode = "hybrid"
+    mode: SearchMode = "hybrid"
+    graph: GraphSelection | None = None
     top_k: int = Field(default=5, ge=1, le=100)
     bm25_candidates: int = Field(default=30, ge=1, le=200)
     dense_candidates: int = Field(default=30, ge=1, le=200)
+
+    @model_validator(mode="after")
+    def graph_selection(self) -> Self:
+        if (self.mode == "hybrid_graph") != (self.graph is not None):
+            raise ValueError("Для hybrid_graph укажите граф, его версию и понятие.")
+        return self
 
 
 class RetrievedChunk(BaseModel):
@@ -50,7 +70,8 @@ class RetrievedChunk(BaseModel):
     score: float
     bm25_score: float | None
     dense_score: float | None
-    mode: Mode
+    mode: SearchMode
+    graph: GraphTrace | None = None
     filters: RetrievalFilters
     embedding_model_version: str | None
 
@@ -67,6 +88,7 @@ class QdrantRetriever:
     mode: Mode
     bm25_candidates: int
     dense_candidates: int
+    graph_scope: qm.Filter | None = None
 
     def ranked(self, query: str, scope: qm.Filter, top_k: int
                ) -> tuple[list[qm.ScoredPoint], dict[str, dict[str | int, float]]]:
@@ -117,6 +139,8 @@ class QdrantRetriever:
             conditions = [qm.FieldCondition(key="generation", match=qm.MatchAny(any=list(sources)))]
             if filters.topic:
                 conditions.append(field("topic", filters.topic))
+            if self.graph_scope is not None:
+                conditions.append(self.graph_scope)
             points, scores = self.ranked(query, qm.Filter(must=conditions), top_k)
             ids = [UUID(str(point.id)) for point in points]
             chunks = {row.chunk_id: row for row in conn.execute(select(db.chunks).where(db.chunks.c.chunk_id.in_(ids)))}
